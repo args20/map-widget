@@ -1,5 +1,5 @@
-const svg = d3.select("svg#map");
-const infoBox = d3.select("#info-box");
+const svg = d3.select("#map");
+const g = svg.append("g");
 
 let projection = d3.geoMercator();
 let path = d3.geoPath().projection(projection);
