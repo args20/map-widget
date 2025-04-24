@@ -1,8 +1,5 @@
-const svg = d3.select("#map");
-const g = svg.append("g");
-
-let projection = d3.geoMercator();
-let path = d3.geoPath().projection(projection);
+const svg = d3.select("svg#map");
+const infoBox = d3.select("#info-box");
 
 const regionData = {
   "South East": {
@@ -67,68 +64,115 @@ const regionData = {
   }
 };
 
-let activeRegion = null;
+let lastSelectedRegion = null;
+const g = svg.append("g");
 
-d3.json("https://martinjc.github.io/UK-GeoJSON/json/eng/topo_eer.json").then(data => {
+function resizeMap() {
+  width = parseInt(svg.style("width"));
+  height = parseInt(svg.style("height"));
+  svg.attr("viewBox", `0 0 ${width} ${height}`);
+
+  projection.translate([width / 2, height / 2]);
+}
+
+let width = parseInt(svg.style("width"));
+let height = parseInt(svg.style("height"));
+svg.attr("viewBox", `0 0 ${width} ${height}`);
+
+let projection = d3.geoMercator()
+  .center([-1.5, 52.5])
+  .scale(4000)
+  .translate([width / 2, height / 2]);
+
+let path = d3.geoPath().projection(projection);
+
+window.addEventListener("resize", () => {
+  resizeMap();
+});
+
+d3.json("https://simaosaco.github.io/map-widget/assets/json/topo_eer.json").then(data => {
   const regions = topojson.feature(data, data.objects.eer);
 
-  projection.fitSize([window.innerWidth, window.innerHeight], regions);
-  path = d3.geoPath().projection(projection);
-
-  const bounds = path.bounds(regions);
-  const [x0, y0] = bounds[0];
-  const [x1, y1] = bounds[1];
-  svg.attr("viewBox", `${x0} ${y0} ${x1 - x0} ${y1 - y0}`)
-     .attr("preserveAspectRatio", "xMidYMid meet");
-
-  const regionPaths = g.selectAll("path")
+  const paths = g.selectAll("path")
     .data(regions.features)
     .enter()
     .append("path")
+    .attr("class", "region")
     .attr("d", path)
-    .attr("fill", "#b3cde0")
-    .attr("stroke", "#333")
     .on("click", function(event, d) {
-      if (activeRegion) activeRegion.classed("active-region", false);
-      activeRegion = d3.select(this).classed("active-region", true);
+      const name = d.properties.EER13NM;
 
-      g.selectAll(".region-label")
-        .style("display", label => label === d ? "none" : "block");
+      d3.selectAll(".region").classed("active", false);
+      d3.select(this).classed("active", true);
 
-      const props = regionData[d.properties.EER13NM];
-      if (props) {
-        d3.select("#info").html(`
-          <div class="info-title">${props.name}</div>
-            <div class="info-list">
-            <div class="info-list-item"><span>Mod and High (ha)</span><span>${props.modHigh.toLocaleString()}</span></div>
-            <div class="info-list-item"><span>0% assumed Developable Area (ha)</span><span>${props.developable.toLocaleString()}</span></div>
-            <div class="info-list-item"><span>Homes at 40 dph</span><span>${props.homes40.toLocaleString()}</span></div>
-            <div class="info-list-item"><span>Homes at 60 dph</span><span>${props.homes60.toLocaleString()}</span></div>
-          </div>`);
+      if (lastSelectedRegion && lastSelectedRegion !== name) {
+        const prevId = `label-${lastSelectedRegion.replace(/\s+/g, '-')}`;
+        d3.select(`#${prevId}`).style("display", "block");
       }
+
+      const labelId = `label-${name.replace(/\s+/g, '-')}`;
+      d3.select(`#${labelId}`).style("display", "none");
+
+      lastSelectedRegion = name;
+
+      const info = regionData[name];
+      infoBox.html(info ? `
+              <div class="info-title">${name}</div>
+          <div class="info-list">
+          <div class="info-list-item"><span>Mod and High (ha)</span><span>${info.modHigh}</span></div>
+          <div class="info-list-item"><span>0% assumed Developable Area (ha)</span><span>${info.developable}</span></div>
+          <div class="info-list-item"><span>Homes at 40 dph</span><span>${info.homes40}</span></div>
+          <div class="info-list-item"><span>Homes at 60 dph</span><span>${info.homes60}</span></div>
+        </div>` : `<strong>${name}</strong><p>No data available.</p>`);
+
+      event.stopPropagation();
     });
 
-  g.selectAll(".region-label")
+  g.selectAll("foreignObject")
     .data(regions.features)
     .enter()
-    .append("text")
+    .append("foreignObject")
     .attr("class", "region-label")
-    .attr("x", d => path.centroid(d)[0])
-    .attr("y", d => path.centroid(d)[1])
-    .text(d => d.properties.EER13NM);
+    .attr("id", d => `label-${d.properties.EER13NM.replace(/\s+/g, '-')}`)
+    .attr("x", d => path.centroid(d)[0] - 50)
+    .attr("y", d => path.centroid(d)[1] - 10)
+    .attr("width", 80)
+    .attr("height", 30)
+    .append("xhtml:div")
+    .html(d => d.properties.EER13NM);
 
-  // Zooming only on desktop
+  const bounds = path.bounds(regions);
+  const dx = bounds[1][0] - bounds[0][0];
+  const dy = bounds[1][1] - bounds[0][1];
+  const x = (bounds[0][0] + bounds[1][0]) / 2;
+  const y = (bounds[0][1] + bounds[1][1]) / 2;
+  const scale = Math.min(8, 0.9 / Math.max(dx / width, dy / height));
+  const translate = [width / 2 - scale * x, height / 2 - scale * y];
+
+  const zoom = d3.zoom()
+    .scaleExtent([1, 8])
+    .translateExtent([[0, 0], [width, height]])
+    .on("zoom", event => g.attr("transform", event.transform));
+
   if (window.innerWidth > 767) {
-    const zoom = d3.zoom()
-      .scaleExtent([1, 8])
-      .on("zoom", (event) => g.attr("transform", event.transform));
-
-    svg.call(zoom);
+    svg.call(zoom).call(
+      zoom.transform,
+      d3.zoomIdentity.translate(...translate).scale(scale)
+    );
+  } else {
+    g.attr("transform", d3.zoomIdentity);
   }
 
-  // Default info on load
-  const defaultInfo = regionData["Total"];
-  d3.select("#info").html(`
+  svg.on("click", () => {
+    d3.selectAll(".region").classed("active", false);
+    if (lastSelectedRegion) {
+      const labelId = `label-${lastSelectedRegion.replace(/\s+/g, '-')}`;
+      d3.select(`#${labelId}`).style("display", "block");
+    }
+    lastSelectedRegion = null;
+
+    const defaultInfo = regionData["Total"];
+    infoBox.html(`
         <div class="info-title">England</div>
           <div class="info-list">
           <div class="info-list-item"><span>Mod and High (ha)</span><span>${defaultInfo.modHigh}</span></div>
@@ -137,19 +181,16 @@ d3.json("https://martinjc.github.io/UK-GeoJSON/json/eng/topo_eer.json").then(dat
           <div class="info-list-item"><span>Homes at 60 dph</span><span>${defaultInfo.homes60}</span></div>
         </div>
       `);
-});
+  });
 
-// Handle resize
-window.addEventListener("resize", () => {
-  const width = window.innerWidth;
-  const height = window.innerHeight;
-  projection.fitSize([width, height], topojson.feature(data, data.objects.eer));
-  path = d3.geoPath().projection(projection);
-
-  svg.attr("viewBox", null);
-
-  g.selectAll("path").attr("d", path);
-  g.selectAll(".region-label")
-    .attr("x", d => path.centroid(d)[0])
-    .attr("y", d => path.centroid(d)[1]);
+  const defaultInfo = regionData["Total"];
+  infoBox.html(`
+        <div class="info-title">England</div>
+          <div class="info-list">
+          <div class="info-list-item"><span>Mod and High (ha)</span><span>${defaultInfo.modHigh}</span></div>
+          <div class="info-list-item"><span>0% assumed Developable Area (ha)</span><span>${defaultInfo.developable}</span></div>
+          <div class="info-list-item"><span>Homes at 40 dph</span><span>${defaultInfo.homes40}</span></div>
+          <div class="info-list-item"><span>Homes at 60 dph</span><span>${defaultInfo.homes60}</span></div>
+        </div>
+      `);
 });
