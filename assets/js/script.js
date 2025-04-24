@@ -1,6 +1,8 @@
 const svg = d3.select("svg#map");
 const infoBox = d3.select("#info-box");
 
+let lastSelectedRegion = null;
+
 const regionData = {
   "South East": { modHigh: "68,384", developable: "41,031", homes40: "1,641,226", homes60: "2,461,839" },
   "Yorkshire and The Humber": { modHigh: "47,549", developable: "28,529", homes40: "1,141,178", homes60: "1,711,767" },
